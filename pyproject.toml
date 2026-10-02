@@ -9,9 +9,33 @@ description = "CI gate that measures how much of an Android APK/AAB is obfuscate
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
+keywords = [
+    "android", "apk", "aab", "dex", "obfuscation", "r8", "proguard", "apkid",
+    "mobile-security", "static-analysis", "ci", "github-actions",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "androguard>=4.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ykus4/android-obfuscheck"
+Documentation = "https://github.com/ykus4/android-obfuscheck#readme"
+Issues = "https://github.com/ykus4/android-obfuscheck/issues"
+"Model experiments" = "https://github.com/ykus4/android-obfuscheck/blob/main/docs/model-experiments.md"
 
 [project.optional-dependencies]
 ml = ["scikit-learn>=1.3", "joblib>=1.3"]
