@@ -84,7 +84,9 @@ def cmd_train(args: argparse.Namespace) -> int:
         from android_obfuscheck.train import train
     except ImportError:
         sys.exit("training needs scikit-learn: pip install 'android-obfuscheck[ml]'")
-    meta = train(args.data, args.out, test_size=args.test_size, seed=args.seed)
+    meta = train(
+        args.data, args.out, test_size=args.test_size, seed=args.seed, algorithm=args.algorithm
+    )
     print(json.dumps(meta, indent=2))
     print(f"saved {args.out}", file=sys.stderr)
     return EXIT_OK
@@ -181,6 +183,12 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--out", default="android-obfuscheck-model.joblib")
     tr.add_argument("--test-size", type=float, default=0.2)
     tr.add_argument("--seed", type=int, default=0)
+    tr.add_argument(
+        "--algorithm",
+        choices=["lr", "lightgbm"],
+        default="lr",
+        help="classifier; lightgbm is ~0.1 pt more accurate but needs `pip install lightgbm`",
+    )
     tr.set_defaults(func=cmd_train)
     return parser
 

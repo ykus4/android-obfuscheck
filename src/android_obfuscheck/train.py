@@ -38,30 +38,55 @@ def _metrics(y_true: list[int], y_pred: list[bool]) -> dict[str, float]:
     }
 
 
-def train(data: str | Path, out: str | Path, test_size: float = 0.2, seed: int = 0) -> dict:
-    from sklearn.model_selection import train_test_split
+def grouped_split(classes: list[ClassInfo], labels: list[int], test_size: float, seed: int):
+    """Stratified hold-out that keeps identical class texts on the same side.
 
+    The upstream dataset repeats classes such as ``R`` or ``a a`` across apps; a plain random
+    split would score those duplicates as if they were unseen.
+    """
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    texts = [c.to_text() for c in classes]
+    ids = {t: i for i, t in enumerate(dict.fromkeys(texts))}
+    n_splits = max(2, round(1 / test_size))
+    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    tr, te = next(cv.split(texts, labels, [ids[t] for t in texts]))
+    return (
+        [classes[i] for i in tr],
+        [classes[i] for i in te],
+        [labels[i] for i in tr],
+        [labels[i] for i in te],
+    )
+
+
+def train(
+    data: str | Path,
+    out: str | Path,
+    test_size: float = 0.2,
+    seed: int = 0,
+    algorithm: str = "lr",
+) -> dict:
     classes, labels = load_dataset(data)
     if len(set(labels)) < 2:
         raise ValueError(f"{data}: need both label 0 and label 1 rows, got {len(labels)} rows")
 
-    x_tr, x_te, y_tr, y_te = train_test_split(
-        classes, labels, test_size=test_size, random_state=seed, stratify=labels
-    )
-    pipeline = build_pipeline().fit(x_tr, y_tr)
+    x_tr, x_te, y_tr, y_te = grouped_split(classes, labels, test_size, seed)
+    pipeline = build_pipeline(algorithm).fit(x_tr, y_tr)
     evaluation = {
         "ml": _metrics(y_te, MLDetector(pipeline).predict(x_te)),
         "heuristic": _metrics(y_te, HeuristicDetector().predict(x_te)),
     }
 
     # Refit on everything for the shipped model; the held-out numbers above stay honest.
-    pipeline = build_pipeline().fit(classes, labels)
+    pipeline = build_pipeline(algorithm).fit(classes, labels)
     meta = {
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataset": Path(data).name,
         "rows": len(labels),
+        "algorithm": algorithm,
         "test_size": test_size,
         "seed": seed,
+        "split": "stratified, grouped by identical text",
         "evaluation": evaluation,
     }
     MLDetector(pipeline, meta=meta).save(out)

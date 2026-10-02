@@ -91,23 +91,29 @@ APKiD is GPL-3.0 and is run as a separate `apkid` executable, not imported.
 
 ## Detectors
 
-| detector | needs | held-out accuracy* |
-|---|---|---|
-| `heuristic` (default) | nothing | 93.4 % (F1 0.907) |
-| `ml` (`--model`) | `android-obfuscheck[ml]` and a trained model | 99.0 % (F1 0.987) |
+| detector | needs | accuracy* |
+|---|---|---:|
+| `heuristic` (default) | nothing | 98.2 % |
+| `ml` (`--model`, trained with `--algorithm lr`) | `android-obfuscheck[ml]` and a trained model | 99.3 % |
+| `ml` (`--algorithm lightgbm`) | `android-obfuscheck[lightgbm]` and a trained model | 99.3 % |
 
-\* 20 % stratified hold-out of the upstream `new_train.csv` (14,619 labelled classes).
+\* Grouped, stratified 5-fold CV on the upstream `new_train.csv` (14,619 labelled classes).
+[docs/model-experiments.md](docs/model-experiments.md) compares 18 detectors, including the
+upstream LSTM, and explains the choices below.
 
-The heuristic flags a class when its simple name looks like an R8/ProGuard name (`a`, `Zb`, `b12`,
-`A0`, `zze`, …) or at least 60 % of its members do. The ML model is a scikit-learn pipeline:
-character 1–3-gram TF-IDF over the name tokens, plus shape features, feeding a logistic regression.
-It is a few hundred KB and runs on CPU in well under a second for a typical app.
+The heuristic flags a class when its name looks like an R8/ProGuard name (`a`, `Zb`, `b12`, `A0`,
+`zza`, …), when an inner class has such a name, or when at least 40 % of its members do. It skips
+`R`/`BuildConfig` and synthetic helpers, and ignores framework-mandated members such as `run` and
+`toString`. The ML model combines character 1–4-gram TF-IDF with 25 shape features. A package
+rule backs it up: classes whose package and name both look renamed (`d4.d`) always count as
+obfuscated, which matters for member-less interfaces the training data rarely covers.
 
 ### Training a model
 
 ```sh
 scripts/fetch_dataset.sh data/new_train.csv
 android-obfuscheck train --data data/new_train.csv --out android-obfuscheck-model.joblib
+# or: --algorithm lightgbm   (pip install 'android-obfuscheck[lightgbm]')
 android-obfuscheck scan app.apk --model android-obfuscheck-model.joblib
 ```
 
@@ -148,5 +154,6 @@ src/android_obfuscheck/
   apkid.py       APKiD subprocess runner, result parsing, gates
   report.py      scoping, per-package aggregation, gates, text/Markdown/JSON rendering
   cli.py         `android-obfuscheck scan` / `android-obfuscheck train`
+experiments/     model comparison scripts and results (docs/model-experiments.md)
 action.yml       composite GitHub Action
 ```

@@ -4,7 +4,9 @@ from android_obfuscheck.classinfo import ClassInfo, parse_upstream_text
 from android_obfuscheck.detectors import HeuristicDetector, looks_obfuscated
 
 
-@pytest.mark.parametrize("name", ["a", "Zb", "aa", "a1", "b12", "A0", "C5", "o90", "zze"])
+@pytest.mark.parametrize(
+    "name", ["a", "Zb", "aa", "a1", "b12", "A0", "C5", "o90", "zze", "zza", "zae", "zzcpr"]
+)
 def test_obfuscated_names(name):
     assert looks_obfuscated(name)
 
@@ -37,11 +39,31 @@ def test_parse_upstream_text():
         (ClassInfo("a.b.c", ("a", "b"), ("c",)), True),
         (ClassInfo("com.example.MainActivity", ("onCreate", "a", "b", "c"), ()), True),
         (ClassInfo("com.example.MainActivity", ("onCreate", "onResume"), ("binding",)), False),
-        (ClassInfo("com.example.Point", ("<init>",), ("x",)), False),
+        (ClassInfo("com.example.Point", ("<init>",), ("value",)), False),
+        # Trade-off of min_members=1 (chosen by CV): a lone short member is enough.
+        (ClassInfo("com.example.Point", ("<init>",), ("x",)), True),
+        # R classes and synthetic helpers are short by convention, not obfuscation.
+        (ClassInfo("com.example.R$id", (), ("a", "b", "c")), False),
+        (ClassInfo("androidx.core.ViewCompat$$ExternalSyntheticApiModelOutline0", ("m",)), False),
+        # Renamed inner class of a kept outer class.
+        (ClassInfo("androidx.recyclerview.widget.StaggeredGridLayoutManager$c", (), ("e",)), True),
+        # Framework-mandated names (run, toString, CREATOR) don't count as readable members.
+        (ClassInfo("com.example.Worker", ("run", "a", "b"), ()), True),
+        (ClassInfo("com.example.Parcelled", ("writeToParcel", "d"), ("CREATOR", "e")), True),
     ],
 )
 def test_heuristic(info, expected):
     assert HeuristicDetector().is_obfuscated(info) is expected
+
+
+def test_repackaged():
+    from android_obfuscheck.detectors import repackaged
+
+    assert repackaged(ClassInfo("d4.d"))
+    assert repackaged(ClassInfo("H1.n", ("iterator",)))
+    assert not repackaged(ClassInfo("d"))  # no package: leave it to the model
+    assert not repackaged(ClassInfo("com.example.a"))
+    assert not repackaged(ClassInfo("d4.MainActivity"))
 
 
 def test_ml_roundtrip(tmp_path):
@@ -65,3 +87,6 @@ def test_ml_roundtrip(tmp_path):
     assert det.predict(
         [ClassInfo("q", ("a", "b"), ("c",)), ClassInfo("com.x.OrderService", ("placeOrder",), ())]
     ) == [True, False]
+    # The package rule catches repackaged classes the model has never seen the like of.
+    assert det.predict([ClassInfo("d4.UserRepository0")]) == [False]
+    assert det.predict([ClassInfo("d4.d")]) == [True]
