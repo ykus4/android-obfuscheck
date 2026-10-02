@@ -1,0 +1,123 @@
+name: android-obfuscheck
+description: Fail the build when R8/ProGuard obfuscation coverage of an APK/AAB is too low
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  path:
+    description: APK, AAB or dex to scan
+    required: true
+  min-coverage:
+    description: Minimum fraction (0-1) of in-scope classes that must be obfuscated
+    required: false
+    default: ""
+  baseline:
+    description: JSON report from a previous run; fail if coverage drops more than max-drop
+    required: false
+    default: ""
+  max-drop:
+    description: Allowed coverage drop versus baseline
+    required: false
+    default: "0.05"
+  include:
+    description: Comma-separated package prefixes to count (default all)
+    required: false
+    default: ""
+  exclude:
+    description: Comma-separated extra package prefixes to skip
+    required: false
+    default: ""
+  apkid:
+    description: "Also fingerprint the build with APKiD (true/false)"
+    required: false
+    default: "false"
+  require-compiler:
+    description: Comma-separated compilers APKiD must report, e.g. r8 (implies apkid)
+    required: false
+    default: ""
+  forbid:
+    description: Comma-separated APKiD categories that fail the build, e.g. packer (implies apkid)
+    required: false
+    default: ""
+  model:
+    description: Model file from `android-obfuscheck train`; heuristic detector if empty
+    required: false
+    default: ""
+  report:
+    description: Where to write the JSON report
+    required: false
+    default: android-obfuscheck-report.json
+  python-version:
+    required: false
+    default: "3.12"
+
+outputs:
+  coverage:
+    description: Obfuscation coverage of in-scope classes (0-1)
+    value: ${{ steps.scan.outputs.coverage }}
+  passed:
+    description: "true if every gate passed"
+    value: ${{ steps.scan.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install android-obfuscheck
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        MODEL: ${{ inputs.model }}
+        APKID: ${{ inputs.apkid }}
+        REQUIRE_COMPILER: ${{ inputs.require-compiler }}
+        FORBID: ${{ inputs.forbid }}
+      run: |
+        if [ -n "$MODEL" ]; then pip install -q "$ACTION_PATH[ml]"; else pip install -q "$ACTION_PATH"; fi
+        if [ "$APKID" = "true" ] || [ -n "$REQUIRE_COMPILER" ] || [ -n "$FORBID" ]; then
+          pip install -q apkid
+        fi
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        TARGET: ${{ inputs.path }}
+        MIN_COVERAGE: ${{ inputs.min-coverage }}
+        BASELINE: ${{ inputs.baseline }}
+        MAX_DROP: ${{ inputs.max-drop }}
+        INCLUDE: ${{ inputs.include }}
+        EXCLUDE: ${{ inputs.exclude }}
+        MODEL: ${{ inputs.model }}
+        REPORT: ${{ inputs.report }}
+        APKID: ${{ inputs.apkid }}
+        REQUIRE_COMPILER: ${{ inputs.require-compiler }}
+        FORBID: ${{ inputs.forbid }}
+      run: |
+        args=(scan "$TARGET" --json-out "$REPORT" --markdown-out "$GITHUB_STEP_SUMMARY"
+              --max-drop "$MAX_DROP" --list-unobfuscated 50)
+        [ -n "$MIN_COVERAGE" ] && args+=(--min-coverage "$MIN_COVERAGE")
+        [ -n "$BASELINE" ] && [ -f "$BASELINE" ] && args+=(--baseline "$BASELINE")
+        [ -n "$MODEL" ] && args+=(--model "$MODEL")
+        IFS=',' read -ra inc <<< "$INCLUDE"; for p in "${inc[@]}"; do [ -n "$p" ] && args+=(--include "$p"); done
+        IFS=',' read -ra exc <<< "$EXCLUDE"; for p in "${exc[@]}"; do [ -n "$p" ] && args+=(--exclude "$p"); done
+        [ "$APKID" = "true" ] && args+=(--apkid)
+        IFS=',' read -ra rc <<< "$REQUIRE_COMPILER"; for p in "${rc[@]}"; do [ -n "$p" ] && args+=(--require-compiler "$p"); done
+        IFS=',' read -ra fb <<< "$FORBID"; for p in "${fb[@]}"; do [ -n "$p" ] && args+=(--forbid "$p"); done
+
+        set +e
+        android-obfuscheck "${args[@]}"
+        status=$?
+        set -e
+        if [ -f "$REPORT" ]; then
+          python - "$REPORT" >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        r = json.load(open(sys.argv[1]))
+        print("coverage=%s" % r["coverage"])
+        print("passed=%s" % str(r["passed"]).lower())
+        PY
+        fi
+        exit $status

@@ -1,0 +1,45 @@
+# Example: gate an Android app's release build on obfuscation coverage.
+# Copy to .github/workflows/ in the app repository and adjust paths/thresholds.
+name: obfuscation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  android-obfuscheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: ./gradlew :app:assembleRelease
+
+      # Coverage of main is the baseline that pull requests are compared against.
+      - uses: actions/cache/restore@v4
+        if: github.event_name == 'pull_request'
+        with:
+          path: android-obfuscheck-baseline.json
+          key: android-obfuscheck-baseline-${{ github.base_ref }}
+          restore-keys: android-obfuscheck-baseline-
+
+      - id: obf
+        uses: ykus4/android-obfuscheck@v0.1.0
+        with:
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          min-coverage: "0.6"
+          baseline: android-obfuscheck-baseline.json
+          max-drop: "0.05"
+          require-compiler: r8
+          forbid: packer
+
+      - if: github.event_name == 'push'
+        run: cp android-obfuscheck-report.json android-obfuscheck-baseline.json
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push'
+        with:
+          path: android-obfuscheck-baseline.json
+          key: android-obfuscheck-baseline-${{ github.ref_name }}-${{ github.sha }}
